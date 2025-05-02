@@ -1,6 +1,7 @@
 from typing import Tuple
 import torch
 
+
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     """
     Helper function to reshape frequency tensor to have the same shape as the target tensor 'x'
@@ -22,6 +23,7 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     assert freqs_cis.shape == (x.shape[1], x.shape[-1])
     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(shape)
+
 
 def apply_rotary_emb(
     query: torch.Tensor,
@@ -50,26 +52,36 @@ def apply_rotary_emb(
 
     _, seqlen, _, _ = query.shape
     device = query.device
-    # todo
     #
     # Please refer to slide 22 in https://phontron.com/class/anlp2024/assets/slides/anlp-05-transformers.pdf
     # and Section 3 in https://arxiv.org/abs/2104.09864.
-
+    # fmt: off
     # reshape xq and xk to match the complex representation
-    query_real, query_imag = query.float().reshape(query.shape[:-1] + (-1, 2)).unbind(-1)
+    query_real, query_imag = (query.float().reshape(query.shape[:-1] + (-1, 2)).unbind(-1))
     key_real, key_imag = key.float().reshape(key.shape[:-1] + (-1, 2)).unbind(-1)
     # This separates each query/key vector into its odd and even indices (assuming *one-indexing*).
     # query_real contains q_1, q_3, q_5, ... and query_imag contains q_2, q_4, q_6, ...
+    d = head_dim / 2
+
+    theta_tensor = theta ** (-torch.arange(d, device=device) / d)
+    m_tensor = torch.arange(seqlen, device=device)
+    freq_matrix = torch.outer(m_tensor, theta_tensor)
+    broadcasted_freq_tensor = reshape_for_broadcast(freq_matrix, query_real)
 
     # First, compute the trigonometric values in the second and fourth columns in
     # slide 22 (linked above).
+    cos_theta, sin_theta = torch.cos(broadcasted_freq_tensor), torch.sin(broadcasted_freq_tensor)
+
+    def rope_tech(real, imag, cos, sin):
+        vect1 = (real * cos) - (imag * sin)
+        vect2 = (imag * cos) + (real * sin)
+        full = torch.stack((vect1, vect2), dim=-1).flatten(start_dim=-2)
+        return full
 
     # Then, combine these trigonometric values with the tensors query_real, query_imag,
     # key_real, and key_imag.
 
-    raise NotImplementedError
-
-    query_out = None
-    key_out = None
+    query_out = rope_tech(query_real, query_imag, cos_theta, sin_theta)
+    key_out = rope_tech(key_real, key_imag, cos_theta, sin_theta)
     # Return the rotary position embeddings for the query and key tensors
     return query_out, key_out

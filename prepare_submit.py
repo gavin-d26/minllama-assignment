@@ -1,7 +1,7 @@
 #
 
 # create a zip file for submission
-
+# fmt: off
 import os
 import sys
 import zipfile
@@ -68,22 +68,21 @@ def check_file(file: str, check_aid: str):
 def main(path: str, aid: str):
     aid = aid.strip()
     if os.path.isdir(path):
-        with zipfile.ZipFile(f"{aid}.zip", 'w') as zz:
+        with zipfile.ZipFile(f"{aid}.zip", "w") as zz:
             for root, dirs, files in os.walk(path):
-                if '.git' in root or '__pycache__' in root:
-                    continue  # ignore some parts
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
                 for file in files:
-                    if file.endswith(".zip"):
+                    if file.endswith(".zip") or file.startswith(".") or file.endswith(".pt") or file.startswith("__"):
                         continue
                     ff = os.path.join(root, file)
                     rpath = os.path.relpath(ff, path)
                     zz.write(ff, os.path.join(".", aid, rpath))
                     if rpath in required_files:
                         required_files.remove(rpath)
-        assert len(required_files) == 0, breakpoint()
+        assert len(required_files) == 0, f"Unable to get all required files {required_files}"
         # --
         print(f"Submission zip file created from DIR={path} for {aid}: {aid}.zip")
-        check_file(f'{aid}.zip', aid)
+        check_file(f"{aid}.zip", aid)
     else:  # directly check
         check_file(path, aid)
     # --

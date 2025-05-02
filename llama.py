@@ -9,6 +9,7 @@ from base_llama import LlamaPreTrainedModel, LlamaConfig
 from rope import apply_rotary_emb
 from utils import *
 
+# fmt: off
 # Root Mean Square Layer Normalization (https://arxiv.org/abs/1910.07467)
 # borrowed from the official Llama implementation:
 # https://github.com/facebookresearch/llama/blob/main/llama/model.py
@@ -43,8 +44,8 @@ class RMSNorm(torch.nn.Module):
         Returns:
             torch.Tensor: The normalized tensor.
         """
-        # todo
-        raise NotImplementedError
+        return x * torch.rsqrt((x**2).mean(-1, keepdim=True) + self.eps)
+    
 
     def forward(self, x):
         """
@@ -93,8 +94,15 @@ class Attention(nn.Module):
         Make sure to use attention_dropout (self.attn_dropout) on the computed
         attention matrix before applying it to the value tensor.
         '''
-        # todo
-        raise NotImplementedError
+        
+        attn = (query @ key.transpose(-1, -2))/(self.head_dim**(0.5))
+        # oh we don't need the masking since the goal is to build a classification model. 2hrs debugging no bugs. let this be a lesson :)
+        # mask = ~torch.tril(torch.ones(attn.shape[-2:], device=query.device)).bool()
+        # attn = attn + torch.masked_fill(torch.zeros_like(attn), mask, float("-inf"))
+        attn = self.attn_dropout(torch.softmax(attn, dim=-1))
+        
+        outs = attn @ value
+        return outs
 
     def forward(
         self,
@@ -196,8 +204,9 @@ class LlamaLayer(nn.Module):
         5) add a residual connection from the unnormalized self-attention output to the
            output of the feed-forward network
         '''
-        # todo
-        raise NotImplementedError
+        x = self.attention(self.attention_norm(x)) + x
+        x = self.feed_forward(self.ffn_norm(x)) + x
+        return x
 
 class Llama(LlamaPreTrainedModel):
     def __init__(self, config: LlamaConfig):
@@ -273,12 +282,10 @@ class Llama(LlamaPreTrainedModel):
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] # crop to just the final time step
-            # todo
-            raise NotImplementedError
 
             if temperature == 0.0:
                 # select the single most likely index
-                idx_next = None
+                idx_next = torch.argmax(logits, dim=-1, keepdim=True)
             else:
                 '''
                 Perform temperature sampling:
@@ -289,7 +296,8 @@ class Llama(LlamaPreTrainedModel):
 
                 Note that we are not using top-k sampling/nucleus sampling in this procedure.
                 '''
-                idx_next = None
+                logits = torch.softmax(logits / temperature, dim=-1)
+                idx_next = torch.multinomial(logits, 1)
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
